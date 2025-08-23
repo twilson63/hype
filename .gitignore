@@ -38,3 +38,11 @@ releases/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Claude development files
+.claude/
+AGENTS.md
+CUSTOM_PROMPT_FEATURE.md
+REPL_HISTORY_FEATURE.md
+REPL_SPLASH_DEMO.md
+PRPs/
