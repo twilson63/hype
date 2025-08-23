@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2025-08-23
+
+### Changed
+- **📚 Simplified README**: Restructured documentation to focus on Hype as a modern Lua runtime
+  - Runtime-first approach with REPL, Run, Build progression
+  - Reduced from 1100+ lines to ~220 lines for clarity
+  - Cleaner structure: Getting Started → Usage → Modules → Plugins
+  - Positioned as "Modern Lua Runtime" instead of "Packager"
+
+### Added
+- **📝 Development Files**: Added Claude development files to .gitignore
+  - PRPs (Project Request Protocols) directory
+  - Claude command configurations
+  - Development documentation files
+
+### Improved
+- **🎯 Documentation Focus**: Clear emphasis on Hype's core mission as a Lua runtime
+- **🚀 Getting Started Experience**: Streamlined installation and quick start guides
+- **🔌 Plugin Documentation**: Simplified examples for both Lua and Go plugins
+
+## [1.10.0] - Previous Release
+
 ## [1.7.4] - 2025-07-24
 
 ### Added
