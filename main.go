@@ -9,7 +9,7 @@ import (
 
 // Version information - can be set at build time with -ldflags
 var (
-	version = "1.10.0"
+	version = "1.11.0"
 	commit  = "unknown"
 	date    = "unknown"
 )
