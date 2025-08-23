@@ -5,20 +5,58 @@
 
 set -e
 
-# Configuration
-VERSION=$(git describe --tags --always)
-# If we're exactly on a tag, use just the tag
-if git describe --exact-match --tags HEAD 2>/dev/null; then
-    VERSION=$(git describe --exact-match --tags HEAD)
-fi
-BUILD_DIR="dist"
-BINARY_NAME="hype"
-
 # Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m'
+
+# Handle command line arguments first
+case "${1:-}" in
+    --help|-h)
+        echo "Hype Release Builder"
+        echo "Usage: ./build-releases.sh <version> [--clean]"
+        echo "       ./build-releases.sh --help"
+        echo ""
+        echo "Arguments:"
+        echo "  <version>  Version to build (e.g., v1.11.1)"
+        echo ""
+        echo "Options:"
+        echo "  --clean    Clean build directory only"
+        echo "  --help     Show this help message"
+        echo ""
+        echo "Examples:"
+        echo "  ./build-releases.sh v1.11.1"
+        echo "  ./build-releases.sh --clean"
+        exit 0
+        ;;
+    --clean)
+        echo -e "${BLUE}[INFO]${NC} Cleaning build directory only..."
+        rm -rf "dist"
+        echo -e "${GREEN}[SUCCESS]${NC} Build directory cleaned"
+        exit 0
+        ;;
+esac
+
+# Configuration
+# Use provided version or try to detect from git tags
+if [[ -n "${1:-}" ]]; then
+    VERSION="$1"
+    echo "Using provided version: $VERSION"
+else
+    # If we're exactly on a tag, use just the tag
+    if git describe --exact-match --tags HEAD 2>/dev/null; then
+        VERSION=$(git describe --exact-match --tags HEAD)
+        echo "Using current git tag: $VERSION"
+    else
+        echo "Error: No version specified and current commit is not tagged."
+        echo "Usage: $0 <version> [--clean]"
+        echo "Example: $0 v1.11.1"
+        exit 1
+    fi
+fi
+BUILD_DIR="dist"
+BINARY_NAME="hype"
 
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -215,20 +253,6 @@ main() {
     echo "curl -sSL https://arweave.net/YOUR_INSTALL_SCRIPT_TX_ID | bash"
 }
 
-# Handle command line arguments
-case "${1:-}" in
-    --help|-h)
-        echo "LuaX Release Builder"
-        echo "Usage: ./build-releases.sh [--clean]"
-        echo "       ./build-releases.sh --help"
-        exit 0
-        ;;
-    --clean)
-        log_info "Cleaning build directory only..."
-        rm -rf "$BUILD_DIR"
-        log_success "Build directory cleaned"
-        exit 0
-        ;;
-esac
-
+# Skip the version argument when calling main
+shift 2>/dev/null || true
 main "$@"

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.1] - 2025-08-23
+
+### Fixed
+- **🔧 Release Assets**: Fixed build-releases.sh script to ensure clean asset names without git commit hashes
+  - Assets now properly named as `hype-v1.11.1-linux-amd64.tar.gz` instead of `hype-v1.11.0-4-g6a2c1d7-linux-amd64.tar.gz`
+  - Build script now requires explicit version parameter for clean releases
+  - Prevents accidental releases with git hash suffixes
+- **🐧 Linux Installation**: Fixed install script compatibility issues with asset naming
+  - Updated install scripts to reference correct v1.11.1 asset names
+  - Improved version detection and verification in install scripts
+
+### Changed
+- **🛠️ Build Process**: Enhanced build-releases.sh to require explicit version specification
+  - Now requires version as first argument: `./build-releases.sh v1.11.1`
+  - Improved error handling and usage documentation
+  - Only uses git tags when on exact tag commits
+
 ## [1.11.0] - 2025-08-23
 
 ### Changed
