@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Hype is a Go-based tool that packages Lua scripts into standalone executables with TUI (Terminal User Interface), HTTP server, and embedded database support. It embeds a Lua runtime with custom modules to create cross-platform applications with zero external dependencies.
+Hype Lean Framework is a streamlined Go-based tool that packages Lua scripts into standalone executables with HTTP client, embedded database, cryptography, and HTTP signatures support. It embeds a Lua runtime with focused modules to create cross-platform applications with zero external dependencies.
 
 ## Development Commands
 
@@ -20,44 +20,46 @@ make dev
 make test
 
 # Clean build artifacts
-rm -f hype
+make clean
 
 # Build releases for all platforms
 make releases
 ```
 
-### Running Examples and Development
+### Running Scripts
 ```bash
-# Run Lua scripts directly in development mode (recommended for testing)
+# Run Lua scripts directly (recommended for development)
 ./hype run script.lua
 ./hype run script.lua -- --arg1 value1 --arg2 value2
 
 # Build standalone executables
 ./hype build script.lua -o output_name
-./hype build script.lua -t windows -o myapp-windows
-./hype build script.lua -t linux -o myapp-linux
-./hype build script.lua -t darwin -o myapp-darwin
+./hype build script.lua -t windows -o myapp-windows.exe
 
-# Cross-compilation with GOOS/GOARCH (v1.7.1+)
+# Cross-compilation with GOOS/GOARCH
 GOOS=linux GOARCH=amd64 ./hype build script.lua -o myapp-linux-amd64
-GOOS=linux GOARCH=arm64 ./hype build script.lua -o myapp-linux-arm64
-GOOS=darwin GOARCH=amd64 ./hype build script.lua -o myapp-macos-intel
 GOOS=darwin GOARCH=arm64 ./hype build script.lua -o myapp-macos-arm64
 GOOS=windows GOARCH=amd64 ./hype build script.lua -o myapp-windows.exe
 
-# Interactive REPL (v1.9.0+)
+# Interactive REPL
 ./hype repl              # TUI REPL with visual interface
 ./hype repl --simple     # Simple command-line REPL
 
-# Test with provided examples
-./hype run examples/hello.lua
-./hype run examples/webserver.lua
-./hype run examples/kv-test.lua
-./hype run examples/browser.lua
-./hype run examples/tui_repl_final.lua
+# Bundle multi-file projects (optional, build handles this automatically)
+./hype bundle main.lua -o bundled.lua
 ```
 
-Note: The README incorrectly mentions `eval` command - the actual command is `run`.
+### Release Management
+```bash
+# Pre-release validation
+make pre-release-check
+
+# Create a release (interactive)
+make release
+
+# View version information
+make version
+```
 
 ## Architecture
 
@@ -65,95 +67,87 @@ Note: The README incorrectly mentions `eval` command - the actual command is `ru
 
 **main.go**: CLI entry point using Cobra framework
 - `build` command: Packages Lua scripts into executables
-- `run` command: Executes Lua scripts directly for development
-- `repl` command: Interactive Lua REPL with TUI or simple mode (v1.8.0+)
+- `run` command: Executes Lua scripts directly
+- `repl` command: Interactive Lua REPL (TUI or simple mode)
+- `bundle` command: Bundles multi-file projects
 - `version` command: Shows version information
 
 **builder.go**: Executable generation system
 - Creates temporary Go runtime embedding the Lua script
 - Generates complete Go application with all dependencies
 - Cross-compiles for different platforms
-- Uses Go's template system to inject Lua scripts into runtime
+- Uses Go's template system to inject Lua scripts
 
-**eval.go**: Direct script execution for development
-- Provides immediate script execution without building
-- Sets up Lua state with all modules (TUI, HTTP, KV)
-- Handles command line argument passing to Lua scripts
+**eval.go**: Direct script execution
+- Sets up Lua state with all modules
+- Handles plugin loading
+- Manages script arguments
+
+**plugin.go**: Plugin system implementation
+- Supports Lua and Go plugins
+- Version management
+- Dynamic loading and registration
+
+**http_client.go**: HTTP client implementation
+- Support for all HTTP methods
+- JSON response parsing
+- Headers and timeout configuration
 
 ### Lua Module System
 
-The tool provides three main Lua modules:
+Built-in modules accessible via `require()`:
+- **http**: HTTP client only (GET, POST, PUT, DELETE with headers/timeouts)
+- **kv**: BoltDB-based key-value store with transactions
+- **crypto**: Cryptography with JWK support (RSA, ECDSA, Ed25519, SHA hashing)
+- **httpsig**: HTTP signatures for request signing and verification
 
-**TUI Module** (`tui`):
-- Built on rivo/tview and gdamore/tcell
-- Components: App, TextView, InputField, Button, Flex
-- Method chaining pattern with Go userdata and metatables
+### Plugin System
 
-**HTTP Module** (`http`):
-- Client: GET requests with timeout and header support
-- Server: Pattern-based routing with JSON response helpers
-- Goroutine-based server execution for non-blocking operation
-
-**KV Module** (`kv`):
-- BoltDB-based embedded key-value store
-- ACID transactions with commit/rollback
-- Bucket-based organization with prefix search
-- Cursor iteration support
-
-### Cross-Platform Building
-
-The build system:
-1. Creates temporary directory with generated Go runtime
-2. Embeds Lua script as string constant in Go template
-3. Generates go.mod with required dependencies
-4. Cross-compiles using GOOS/GOARCH environment variables
-5. Handles platform-specific executable extensions (.exe for Windows)
+Plugins extend functionality with custom Lua modules:
+- Discovery in `./plugins/`, `./examples/plugins/` directories
+- Manifest-based (`hype-plugin.yaml`)
+- Version management with semver
+- Can be embedded into built executables
 
 ## Code Patterns
 
-### Lua-Go Bridge Pattern
-All Lua modules use consistent userdata/metatable patterns:
-- Go structs wrapped in Lua userdata
-- Method dispatch through `__index` metamethods  
-- Consistent error handling (nil + error string returns)
-- Memory management via garbage collection finalizers
+### Lua-Go Bridge
+All modules use consistent userdata/metatable patterns:
+```go
+// Go struct wrapped in Lua userdata
+// Method dispatch through __index metamethods
+// Consistent error handling: nil + error string returns
+```
 
-### HTTP Request Handling
-HTTP handlers receive request/response Lua tables with methods:
-- Request: `.method`, `.url`, `.body`, `.headers`
-- Response: `:write()`, `:json()`, `:header()`, `:status()`
+### Module Registration
+```go
+L.PreloadModule("modulename", func(L *lua.LState) int {
+    // Create module table
+    // Register functions
+    // Return module
+})
+```
 
-### Database Operations
-KV operations follow bucket-based pattern:
-- `db:open_db("bucket_name")` - Create/access bucket
-- `db:get("bucket", "key")` - Get value
-- `db:put("bucket", "key", "value")` - Set value
-- Transaction support with explicit commit/rollback
+## Testing
 
-## Testing Strategy
+Test scripts with `./hype run script.lua` before building. Example scripts in `examples/` demonstrate all features and serve as integration tests.
 
-Test Lua scripts in development using `./hype run script.lua` before building executables. This provides immediate feedback and easier debugging compared to the build process.
+## Dependencies
 
-Example scripts in `examples/` directory demonstrate all major features and serve as integration tests.
-
-## Build Dependencies
-
-- Go 1.23+ (uses toolchain go1.24.3)
-- Key Go modules:
-  - `github.com/spf13/cobra` - CLI framework
-  - `github.com/yuin/gopher-lua` - Lua runtime
-  - `github.com/rivo/tview` - TUI components
-  - `github.com/gdamore/tcell/v2` - Terminal handling
-  - `go.etcd.io/bbolt` - Embedded database
+Go 1.23+ with key modules:
+- `github.com/spf13/cobra` - CLI framework
+- `github.com/yuin/gopher-lua` - Lua runtime
+- `go.etcd.io/bbolt` - Embedded database
+- `gopkg.in/yaml.v2` - YAML parsing for plugins
 
 ## Platform Support
 
 Cross-compilation targets:
-- Linux (amd64, arm64)
-- macOS/Darwin (amd64, arm64) 
+- Linux (amd64, arm64, arm)
+- macOS/Darwin (amd64, arm64)
 - Windows (amd64)
 
-Platform-specific considerations:
-- macOS requires Gatekeeper bypass: `xattr -d com.apple.quarantine /path/to/hype`
+Platform notes:
+- macOS may require: `xattr -d com.apple.quarantine /path/to/hype`
 - Windows executables get `.exe` extension automatically
-- All platforms produce single-binary deployments with no external dependencies
+- All platforms produce single-binary deployments

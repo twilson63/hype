@@ -320,6 +320,12 @@ print("Server will run on port", port, "serving", directory)
 
 ## API Reference
 
+📚 **NEW: Comprehensive Documentation Available!**
+- **[Enhanced API Reference](https://twilson63.github.io/hype/api-enhanced.html)** - Interactive docs with real examples
+- **[Complete Plugin Development Guide](docs/plugin-development-enhanced.md)** - Build powerful plugins
+- **[AI-Friendly Reference](docs/llms.txt)** - For AI assistants and LLMs
+- **[Full Technical Reference](docs/llms-full.txt)** - Everything about Hype
+
 ### TUI Module
 
 Create beautiful terminal user interfaces:

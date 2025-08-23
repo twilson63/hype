@@ -12,8 +12,8 @@ import (
 
 var replSimpleCmd = &cobra.Command{
 	Use:   "repl-simple",
-	Short: "Start a simple interactive Lua REPL (no TUI)",
-	Long:  `Start a simple interactive Lua Read-Eval-Print Loop without TUI.`,
+	Short: "Start a simple interactive Lua REPL",
+	Long:  `Start a simple interactive Lua Read-Eval-Print Loop.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runSimpleREPLDirect(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error running REPL: %v\n", err)
@@ -44,7 +44,7 @@ func runSimpleREPLDirect() error {
 	registerTUIFunctions(L)
 	registerCryptoModule(L)
 	registerHTTPSigModule(L)
-	registerWebSocketModule(L)
+	registerWebSocketStub(L)
 
 	fmt.Println("🚀 Hype Lua REPL v1.8.0")
 	fmt.Println("========================")
