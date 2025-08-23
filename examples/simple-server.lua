@@ -1,26 +1,30 @@
--- Simple HTTP server test
+-- Simple HTTP Server Test (SERVER FUNCTIONALITY REMOVED)
+-- This example previously demonstrated simple HTTP server functionality
+-- which has been removed from Hype. Only HTTP client functionality remains.
+
 local http = require('http')
 
-print("Creating server...")
-local server = http.newServer()
+print("=== HTTP Server Functionality Removed ===")
+print("HTTP server functionality has been removed from Hype.")
+print("Only HTTP client functionality (http.get, http.post, etc.) is available.")
+print("")
 
-print("Setting up routes...")
-server:handle("/", function(req, res)
-    print("Handling request to /")
-    res:write("Hello from LuaX server!")
-end)
+-- Attempt to create server will fail with error message
+print("Attempting to create server...")
+local server, err = http.newServer()
+if server == nil then
+    print("✓ Server creation failed as expected:", err)
+else
+    print("✗ Unexpected: Server was created")
+end
 
-server:handle("/api/test", function(req, res)
-    print("Handling API request")
-    res:json({message = "API works!", time = os.time()})
-end)
-
-print("Starting server on port 8080...")
-server:listen(8080)
-
-print("Server started! Visit http://localhost:8080")
-print("Press Enter to stop...")
-io.read()
-
-print("Stopping server...")
-server:stop()
+print("")
+print("=== HTTP Client Alternative ===")
+print("Use HTTP client functionality instead:")
+print("  - http.get(url)")
+print("  - http.post(url, body)")
+print("  - http.put(url, body)")
+print("  - http.delete(url)")
+print("  - http.request(method, url, options)")
+print("")
+print("See test-http.lua for HTTP client examples.")

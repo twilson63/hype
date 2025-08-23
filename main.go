@@ -20,7 +20,7 @@ var rootCmd = &cobra.Command{
 	Long:  fmt.Sprintf(`hype %s - Lua Script to Executable Packager
 
 hype is a tool that combines a Lua runtime with your Lua scripts to create 
-cross-platform executable applications with TUI support.`, version),
+cross-platform executable applications.`, version),
 }
 
 var buildCmd = &cobra.Command{

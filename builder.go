@@ -264,23 +264,22 @@ func removeHypePluginInterface(content string) string {
 }
 
 func generateRuntimeCode(tempDir string, config *BuildConfig) error {
-	// First, copy the http_module.go file to the temp directory
-	httpModulePath := filepath.Join(tempDir, "http_module.go")
-	httpModuleContent, err := os.ReadFile("http_module.go")
+	// First, copy the http_client.go file to the temp directory
+	httpClientPath := filepath.Join(tempDir, "http_client.go")
+	httpClientContent, err := os.ReadFile("http_client.go")
 	if err != nil {
-		return fmt.Errorf("failed to read http_module.go: %w", err)
+		return fmt.Errorf("failed to read http_client.go: %w", err)
 	}
 	
 	// Replace package main with package main (already correct)
-	if err := os.WriteFile(httpModulePath, httpModuleContent, 0644); err != nil {
-		return fmt.Errorf("failed to write http_module.go: %w", err)
+	if err := os.WriteFile(httpClientPath, httpClientContent, 0644); err != nil {
+		return fmt.Errorf("failed to write http_client.go: %w", err)
 	}
 	
 	runtimeTemplate := `package main
 
 import (
 	"bytes"
-	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -295,20 +294,13 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"sort"
 	{{if .HasPlugins}}"reflect"{{end}}
+	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"github.com/yuin/gopher-lua"
-	"github.com/gdamore/tcell/v2"
-	"github.com/rivo/tview"
 	"go.etcd.io/bbolt"
-	"log"
-	"net/http"
-	"net/url"
-	"github.com/gorilla/websocket"
 )
 
 const luaScript = {{.ScriptContent}}
@@ -346,8 +338,8 @@ func main() {
 	// Register HTTP Signatures module
 	registerHTTPSigModule(L)
 
-	// Register WebSocket module
-	registerWebSocketModule(L)
+	// Register WebSocket stub
+	registerWebSocketStub(L)
 
 {{.PluginRegistrationCode}}
 
@@ -379,778 +371,36 @@ func setupCommandLineArgs(L *lua.LState) {
 }
 
 func registerTUIFunctions(L *lua.LState) {
-	// Create TUI module
+	// TUI module no longer supported - return error functions
 	tuiModule := L.NewTable()
 	
-	// Basic TUI functions
-	L.SetField(tuiModule, "newApp", L.NewFunction(luaNewApp))
-	L.SetField(tuiModule, "newTextView", L.NewFunction(luaNewTextView))
-	L.SetField(tuiModule, "newInputField", L.NewFunction(luaNewInputField))
-	L.SetField(tuiModule, "newButton", L.NewFunction(luaNewButton))
-	L.SetField(tuiModule, "newFlex", L.NewFunction(luaNewFlex))
-	
-	L.SetGlobal("tui", tuiModule)
-	
-	// Set up metatables for TUI objects
-	setupTUIMetatables(L)
-}
-
-func setupTUIMetatables(L *lua.LState) {
-	// App metatable
-	appMT := L.NewTypeMetatable("App")
-	L.SetField(appMT, "__index", L.NewFunction(appIndex))
-	
-	// TextView metatable  
-	textViewMT := L.NewTypeMetatable("TextView")
-	L.SetField(textViewMT, "__index", L.NewFunction(textViewIndex))
-	
-	// InputField metatable
-	inputFieldMT := L.NewTypeMetatable("InputField")
-	L.SetField(inputFieldMT, "__index", L.NewFunction(inputFieldIndex))
-	
-	// Button metatable
-	buttonMT := L.NewTypeMetatable("Button")
-	L.SetField(buttonMT, "__index", L.NewFunction(buttonIndex))
-	
-	// Flex metatable
-	flexMT := L.NewTypeMetatable("Flex")
-	L.SetField(flexMT, "__index", L.NewFunction(flexIndex))
-}
-
-func appIndex(L *lua.LState) int {
-	ud := L.CheckUserData(1)
-	app := ud.Value.(*tview.Application)
-	method := L.CheckString(2)
-	
-	switch method {
-	case "SetRoot":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			// Skip the first argument (self)
-			rootUD := L.CheckUserData(2)
-			fullscreen := L.OptBool(3, true)
-			app.SetRoot(rootUD.Value.(tview.Primitive), fullscreen)
-			return 0
-		}))
-	case "Run":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			if err := app.Run(); err != nil {
-				L.Push(lua.LString(err.Error()))
-				return 1
-			}
-			return 0
-		}))
-	case "Stop":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			app.Stop()
-			return 0
-		}))
-	case "SetFocus":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			primitiveUD := L.CheckUserData(2)
-			app.SetFocus(primitiveUD.Value.(tview.Primitive))
-			return 0
-		}))
-	case "SetInputCapture":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			fn := L.CheckFunction(2)
-			app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-				// Create a simple event object for Lua
-				eventObj := L.NewTable()
-				L.SetField(eventObj, "Key", L.NewFunction(func(L *lua.LState) int {
-					L.Push(lua.LNumber(int(event.Key())))
-					return 1
-				}))
-				
-				L.Push(fn)
-				L.Push(eventObj)
-				L.Call(1, 1)
-				
-				// Check return value - if nil, consume event
-				ret := L.Get(-1)
-				L.Pop(1)
-				if ret == lua.LNil {
-					return nil
-				}
-				return event
-			})
-			L.Push(ud)
-			return 1
-		}))
-	case "Draw":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			app.QueueUpdateDraw(func() {
-				// This safely queues a redraw
-			})
-			return 0
-		}))
-	}
-	return 1
-}
-
-func textViewIndex(L *lua.LState) int {
-	ud := L.CheckUserData(1)
-	textView := ud.Value.(*tview.TextView)
-	method := L.CheckString(2)
-	
-	switch method {
-	case "SetText":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			text := L.CheckString(2)
-			textView.SetText(text)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetWrap":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			wrap := L.CheckBool(2)
-			textView.SetWrap(wrap)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetWordWrap":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			wordWrap := L.CheckBool(2)
-			textView.SetWordWrap(wordWrap)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetTitle":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			title := L.CheckString(2)
-			textView.SetTitle(title)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetTextColor":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			color := L.CheckInt(2)
-			textView.SetTextColor(tcell.Color(color))
-			L.Push(ud)
-			return 1
-		}))
-	case "SetDynamicColors":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			enable := L.CheckBool(2)
-			textView.SetDynamicColors(enable)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetBorder":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			enable := L.CheckBool(2)
-			textView.SetBorder(enable)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetBorderColor":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			color := L.CheckInt(2)
-			textView.SetBorderColor(tcell.Color(color))
-			L.Push(ud)
-			return 1
-		}))
-	case "SetBackgroundColor":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			color := L.CheckInt(2)
-			textView.SetBackgroundColor(tcell.Color(color))
-			L.Push(ud)
-			return 1
-		}))
-	case "SetRegions":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			enable := L.CheckBool(2)
-			textView.SetRegions(enable)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetScrollable":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			enable := L.CheckBool(2)
-			textView.SetScrollable(enable)
-			L.Push(ud)
-			return 1
-		}))
-	case "GetText":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			text := textView.GetText(false)
-			L.Push(lua.LString(text))
-			return 1
-		}))
-	}
-	return 1
-}
-
-func inputFieldIndex(L *lua.LState) int {
-	ud := L.CheckUserData(1)
-	inputField := ud.Value.(*tview.InputField)
-	method := L.CheckString(2)
-	
-	switch method {
-	case "GetText":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			text := inputField.GetText()
-			L.Push(lua.LString(text))
-			return 1
-		}))
-	case "SetText":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			text := L.CheckString(2)
-			inputField.SetText(text)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetLabel":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			label := L.CheckString(2)
-			inputField.SetLabel(label)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetPlaceholder":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			placeholder := L.CheckString(2)
-			inputField.SetPlaceholder(placeholder)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetDoneFunc":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			fn := L.CheckFunction(2)
-			inputField.SetDoneFunc(func(key tcell.Key) {
-				L.Push(fn)
-				L.Push(lua.LNumber(int(key)))
-				L.Call(1, 0)
-			})
-			L.Push(ud)
-			return 1
-		}))
-	case "SetBorder":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			enable := L.CheckBool(2)
-			inputField.SetBorder(enable)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetBorderColor":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			color := L.CheckInt(2)
-			inputField.SetBorderColor(tcell.Color(color))
-			L.Push(ud)
-			return 1
-		}))
-	case "SetFieldBackgroundColor":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			color := L.CheckInt(2)
-			inputField.SetFieldBackgroundColor(tcell.Color(color))
-			L.Push(ud)
-			return 1
-		}))
-	case "SetFieldTextColor":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			color := L.CheckInt(2)
-			inputField.SetFieldTextColor(tcell.Color(color))
-			L.Push(ud)
-			return 1
-		}))
-	case "SetTitle":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			title := L.CheckString(2)
-			inputField.SetTitle(title)
-			L.Push(ud)
-			return 1
-		}))
-	}
-	return 1
-}
-
-func buttonIndex(L *lua.LState) int {
-	ud := L.CheckUserData(1)
-	button := ud.Value.(*tview.Button)
-	method := L.CheckString(2)
-	
-	switch method {
-	case "SetSelectedFunc":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			fn := L.CheckFunction(2)
-			button.SetSelectedFunc(func() {
-				L.Push(fn)
-				L.Call(0, 0)
-			})
-			L.Push(ud)
-			return 1
-		}))
-	case "SetBorder":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			enable := L.CheckBool(2)
-			button.SetBorder(enable)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetBorderColor":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			color := L.CheckInt(2)
-			button.SetBorderColor(tcell.Color(color))
-			L.Push(ud)
-			return 1
-		}))
-	case "SetBackgroundColor":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			color := L.CheckInt(2)
-			button.SetBackgroundColor(tcell.Color(color))
-			L.Push(ud)
-			return 1
-		}))
-	case "SetLabelColor":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			color := L.CheckInt(2)
-			button.SetLabelColor(tcell.Color(color))
-			L.Push(ud)
-			return 1
-		}))
-	case "SetTitle":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			title := L.CheckString(2)
-			button.SetTitle(title)
-			L.Push(ud)
-			return 1
-		}))
-	}
-	return 1
-}
-
-func flexIndex(L *lua.LState) int {
-	ud := L.CheckUserData(1)
-	flex := ud.Value.(*tview.Flex)
-	method := L.CheckString(2)
-	
-	switch method {
-	case "SetDirection":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			direction := L.CheckInt(2)
-			flex.SetDirection(direction)
-			L.Push(ud)
-			return 1
-		}))
-	case "AddItem":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			itemUD := L.CheckUserData(2)
-			fixedSize := L.CheckInt(3)
-			proportion := L.CheckInt(4)
-			focus := L.CheckBool(5)
-			flex.AddItem(itemUD.Value.(tview.Primitive), fixedSize, proportion, focus)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetBorder":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			enable := L.CheckBool(2)
-			flex.SetBorder(enable)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetBorderColor":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			color := L.CheckInt(2)
-			flex.SetBorderColor(tcell.Color(color))
-			L.Push(ud)
-			return 1
-		}))
-	case "SetTitle":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			title := L.CheckString(2)
-			flex.SetTitle(title)
-			L.Push(ud)
-			return 1
-		}))
-	case "SetBackgroundColor":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			color := L.CheckInt(2)
-			flex.SetBackgroundColor(tcell.Color(color))
-			L.Push(ud)
-			return 1
-		}))
-	}
-	return 1
-}
-
-func luaNewApp(L *lua.LState) int {
-	app := tview.NewApplication()
-	ud := L.NewUserData()
-	ud.Value = app
-	L.SetMetatable(ud, L.GetTypeMetatable("App"))
-	L.Push(ud)
-	return 1
-}
-
-func luaNewTextView(L *lua.LState) int {
-	text := L.OptString(1, "")
-	textView := tview.NewTextView().SetText(text).SetDynamicColors(true).SetWrap(true)
-	ud := L.NewUserData()
-	ud.Value = textView
-	L.SetMetatable(ud, L.GetTypeMetatable("TextView"))
-	L.Push(ud)
-	return 1
-}
-
-func luaNewInputField(L *lua.LState) int {
-	inputField := tview.NewInputField()
-	ud := L.NewUserData()
-	ud.Value = inputField
-	L.SetMetatable(ud, L.GetTypeMetatable("InputField"))
-	L.Push(ud)
-	return 1
-}
-
-func luaNewButton(L *lua.LState) int {
-	label := L.OptString(1, "Button")
-	button := tview.NewButton(label)
-	ud := L.NewUserData()
-	ud.Value = button
-	L.SetMetatable(ud, L.GetTypeMetatable("Button"))
-	L.Push(ud)
-	return 1
-}
-
-func luaNewFlex(L *lua.LState) int {
-	flex := tview.NewFlex()
-	ud := L.NewUserData()
-	ud.Value = flex
-	L.SetMetatable(ud, L.GetTypeMetatable("Flex"))
-	L.Push(ud)
-	return 1
-}
-
-func registerWebSocketModule(L *lua.LState) {
-	L.PreloadModule("websocket", func(L *lua.LState) int {
-		wsModule := L.NewTable()
-		L.SetField(wsModule, "newServer", L.NewFunction(wsNewServer))
-		L.SetField(wsModule, "connect", L.NewFunction(wsConnect))
-		L.Push(wsModule)
-		return 1
+	// Create error functions for all TUI components
+	errorFunc := L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("TUI module has been removed from Hype. Use simple REPL mode instead."))
+		return 2
 	})
 	
-	// Set up WebSocket server metatable
-	serverMT := L.NewTypeMetatable("WSServer")
-	L.SetField(serverMT, "__index", L.NewFunction(wsServerIndex))
+	L.SetField(tuiModule, "newApp", errorFunc)
+	L.SetField(tuiModule, "newTextView", errorFunc)
+	L.SetField(tuiModule, "newInputField", errorFunc)
+	L.SetField(tuiModule, "newButton", errorFunc)
+	L.SetField(tuiModule, "newFlex", errorFunc)
 	
-	// Set up WebSocket connection metatable
-	connMT := L.NewTypeMetatable("WSConnection")
-	L.SetField(connMT, "__index", L.NewFunction(wsConnectionIndex))
+	L.SetGlobal("tui", tuiModule)
 }
 
-type WSServer struct {
-	server   *http.Server
-	mux      *http.ServeMux
-	upgrader websocket.Upgrader
-}
+// setupTUIMetatables removed - TUI functionality no longer supported
 
-type WSConnection struct {
-	conn          *websocket.Conn
-	messageHandler *lua.LFunction
-	closeHandler   *lua.LFunction
-	errorHandler   *lua.LFunction
-	mutex         sync.RWMutex
-	L             *lua.LState
-}
+// appIndex removed - TUI functionality no longer supported
 
-func wsNewServer(L *lua.LState) int {
-	server := &WSServer{
-		mux: http.NewServeMux(),
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow connections from any origin
-			},
-		},
-	}
-	
-	ud := L.NewUserData()
-	ud.Value = server
-	L.SetMetatable(ud, L.GetTypeMetatable("WSServer"))
-	L.Push(ud)
-	return 1
-}
-
-func wsConnect(L *lua.LState) int {
-	urlStr := L.CheckString(1)
-	
-	// Parse URL
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString("Invalid URL: " + err.Error()))
-		return 2
-	}
-	
-	// Connect to WebSocket
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
-	if err != nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString("Connection failed: " + err.Error()))
-		return 2
-	}
-	
-	wsConn := &WSConnection{
-		conn: conn,
-		L:    L,
-	}
-	
-	ud := L.NewUserData()
-	ud.Value = wsConn
-	L.SetMetatable(ud, L.GetTypeMetatable("WSConnection"))
-	
-	// Start reading messages
-	go wsConn.readMessages()
-	
-	L.Push(ud)
-	L.Push(lua.LNil)
-	return 2
-}
-
-func wsServerIndex(L *lua.LState) int {
-	ud := L.CheckUserData(1)
-	server := ud.Value.(*WSServer)
-	method := L.CheckString(2)
-	
-	switch method {
-	case "handle":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			pattern := L.CheckString(2)
-			handlerFunc := L.CheckFunction(3)
-			
-			server.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-				conn, err := server.upgrader.Upgrade(w, r, nil)
-				if err != nil {
-					log.Printf("WebSocket upgrade failed: %v", err)
-					return
-				}
-				
-				wsConn := &WSConnection{
-					conn: conn,
-					L:    L,
-				}
-				
-				connUD := L.NewUserData()
-				connUD.Value = wsConn
-				L.SetMetatable(connUD, L.GetTypeMetatable("WSConnection"))
-				
-				// Start reading messages
-				go wsConn.readMessages()
-				
-				// Call the handler with the connection
-				if err := L.CallByParam(lua.P{
-					Fn:      handlerFunc,
-					NRet:    0,
-					Protect: true,
-				}, connUD); err != nil {
-					log.Printf("WebSocket handler error: %v", err)
-				}
-			})
-			
-			return 0
-		}))
-	case "listen":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			port := L.CheckInt(2)
-			
-			server.server = &http.Server{
-				Addr:    fmt.Sprintf(":%d", port),
-				Handler: server.mux,
-			}
-			
-			// Start server in goroutine
-			go func() {
-				if err := server.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-					log.Printf("WebSocket server error: %v", err)
-				}
-			}()
-			
-			return 0
-		}))
-	case "stop":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			if server.server != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				server.server.Shutdown(ctx)
-			}
-			return 0
-		}))
-	}
-	
-	return 1
-}
-
-func wsConnectionIndex(L *lua.LState) int {
-	ud := L.CheckUserData(1)
-	conn := ud.Value.(*WSConnection)
-	method := L.CheckString(2)
-	
-	switch method {
-	case "send":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			message := L.CheckString(2)
-			
-			conn.mutex.Lock()
-			err := conn.conn.WriteMessage(websocket.TextMessage, []byte(message))
-			conn.mutex.Unlock()
-			
-			if err != nil {
-				L.Push(lua.LFalse)
-				L.Push(lua.LString("Send failed: " + err.Error()))
-				return 2
-			}
-			
-			L.Push(lua.LTrue)
-			L.Push(lua.LNil)
-			return 2
-		}))
-	case "sendBinary":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			message := L.CheckString(2)
-			
-			conn.mutex.Lock()
-			err := conn.conn.WriteMessage(websocket.BinaryMessage, []byte(message))
-			conn.mutex.Unlock()
-			
-			if err != nil {
-				L.Push(lua.LFalse)
-				L.Push(lua.LString("Send failed: " + err.Error()))
-				return 2
-			}
-			
-			L.Push(lua.LTrue)
-			L.Push(lua.LNil)
-			return 2
-		}))
-	case "onMessage":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			handler := L.CheckFunction(2)
-			conn.mutex.Lock()
-			conn.messageHandler = handler
-			conn.mutex.Unlock()
-			return 0
-		}))
-	case "onClose":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			handler := L.CheckFunction(2)
-			conn.mutex.Lock()
-			conn.closeHandler = handler
-			conn.mutex.Unlock()
-			return 0
-		}))
-	case "onError":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			handler := L.CheckFunction(2)
-			conn.mutex.Lock()
-			conn.errorHandler = handler
-			conn.mutex.Unlock()
-			return 0
-		}))
-	case "close":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			conn.mutex.Lock()
-			err := conn.conn.Close()
-			conn.mutex.Unlock()
-			
-			if err != nil {
-				L.Push(lua.LFalse)
-				L.Push(lua.LString("Close failed: " + err.Error()))
-				return 2
-			}
-			
-			L.Push(lua.LTrue)
-			L.Push(lua.LNil)
-			return 2
-		}))
-	case "ping":
-		L.Push(L.NewFunction(func(L *lua.LState) int {
-			conn.mutex.Lock()
-			err := conn.conn.WriteMessage(websocket.PingMessage, nil)
-			conn.mutex.Unlock()
-			
-			if err != nil {
-				L.Push(lua.LFalse)
-				L.Push(lua.LString("Ping failed: " + err.Error()))
-				return 2
-			}
-			
-			L.Push(lua.LTrue)
-			L.Push(lua.LNil)
-			return 2
-		}))
-	}
-	
-	return 1
-}
-
-func (wsConn *WSConnection) readMessages() {
-	defer func() {
-		if wsConn.closeHandler != nil {
-			wsConn.mutex.RLock()
-			handler := wsConn.closeHandler
-			wsConn.mutex.RUnlock()
-			
-			if handler != nil {
-				if err := wsConn.L.CallByParam(lua.P{
-					Fn:      handler,
-					NRet:    0,
-					Protect: true,
-				}); err != nil {
-					log.Printf("WebSocket close handler error: %v", err)
-				}
-			}
-		}
-		wsConn.conn.Close()
-	}()
-	
-	for {
-		messageType, message, err := wsConn.conn.ReadMessage()
-		if err != nil {
-			if wsConn.errorHandler != nil {
-				wsConn.mutex.RLock()
-				handler := wsConn.errorHandler
-				wsConn.mutex.RUnlock()
-				
-				if handler != nil {
-					if err := wsConn.L.CallByParam(lua.P{
-						Fn:      handler,
-						NRet:    0,
-						Protect: true,
-					}, lua.LString(err.Error())); err != nil {
-						log.Printf("WebSocket error handler error: %v", err)
-					}
-				}
-			}
-			break
-		}
-		
-		if messageType == websocket.TextMessage || messageType == websocket.BinaryMessage {
-			if wsConn.messageHandler != nil {
-				wsConn.mutex.RLock()
-				handler := wsConn.messageHandler
-				wsConn.mutex.RUnlock()
-				
-				if handler != nil {
-					messageTable := wsConn.L.NewTable()
-					wsConn.L.SetField(messageTable, "data", lua.LString(string(message)))
-					wsConn.L.SetField(messageTable, "type", lua.LString(func() string {
-						if messageType == websocket.TextMessage {
-							return "text"
-						}
-						return "binary"
-					}()))
-					
-					if err := wsConn.L.CallByParam(lua.P{
-						Fn:      handler,
-						NRet:    0,
-						Protect: true,
-					}, messageTable); err != nil {
-						log.Printf("WebSocket message handler error: %v", err)
-					}
-				}
-			}
-		}
-	}
+// All TUI functions removed - TUI functionality no longer supported
+// WebSocket stub - functionality removed
+func registerWebSocketStub(L *lua.LState) {
+	L.PreloadModule("websocket", func(L *lua.LState) int {
+		L.RaiseError("WebSocket module has been removed from Hype. Use HTTP or other alternatives.")
+		return 0
+	})
 }
 
 func registerKVModule(L *lua.LState) {
@@ -3303,8 +2553,6 @@ go 1.21
 
 require (
 	github.com/yuin/gopher-lua v1.1.1
-	github.com/gdamore/tcell/v2 v2.7.0
-	github.com/rivo/tview v0.0.0-20240101144852-b3bd1aa5e9f2
 	go.etcd.io/bbolt v1.4.1
 )
 `
