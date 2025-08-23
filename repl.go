@@ -732,8 +732,77 @@ func runEnhancedREPLWithState(L *lua.LState) error {
 					case lua.LTString:
 						result = lua.LVAsString(lv)
 					case lua.LTTable:
-						// For tables, just show it's a table
-						result = "<table>"
+						// Create a simple colorized table representation
+						table := lv.(*lua.LTable)
+						if supportsColor() {
+							result = "\033[96m{\033[0m" // cyan braces
+
+							// Show a few elements
+							count := 0
+							table.ForEach(func(k, v lua.LValue) {
+								if count > 0 {
+									result += "\033[37m, \033[0m" // white comma
+								}
+								if count < 3 {
+									// Key
+									if k.Type() == lua.LTString {
+										keyStr := lua.LVAsString(k)
+										result += "\033[92m" + keyStr + "\033[0m = " // green key
+									} else {
+										result += "\033[94m[" + fmt.Sprintf("%v", k) + "]\033[0m = " // blue bracket
+									}
+
+									// Value (simplified)
+									switch v.Type() {
+									case lua.LTString:
+										result += "\033[93m\"" + lua.LVAsString(v) + "\"\033[0m" // yellow string
+									case lua.LTNumber:
+										result += "\033[95m" + lua.LVAsNumber(v).String() + "\033[0m" // magenta number
+									case lua.LTBool:
+										boolVal := "false"
+										if lua.LVAsBool(v) {
+											boolVal = "true"
+										}
+										result += "\033[91m" + boolVal + "\033[0m" // red boolean
+									case lua.LTNil:
+										result += "\033[90mnil\033[0m" // gray nil
+									case lua.LTTable:
+										result += "\033[96m{...}\033[0m" // cyan nested table
+									default:
+										result += "\033[37m<" + v.Type().String() + ">\033[0m" // white other
+									}
+								} else if count == 3 {
+									result += "\033[37m...\033[0m" // gray ellipsis
+								}
+								count++
+							})
+
+							result += "\033[96m}\033[0m" // cyan closing brace
+
+							// Add table length info
+							if table.Len() > 0 {
+								result += " \033[90m[" + fmt.Sprintf("%d", table.Len()) + "]\033[0m" // gray length
+							}
+						} else {
+							// Plain text version
+							result = "{"
+							count := 0
+							table.ForEach(func(k, v lua.LValue) {
+								if count > 0 {
+									result += ", "
+								}
+								if count < 3 {
+									result += fmt.Sprintf("%v=%v", k, v)
+								} else if count == 3 {
+									result += "..."
+								}
+								count++
+							})
+							result += "}"
+							if table.Len() > 0 {
+								result += fmt.Sprintf("[%d]", table.Len())
+							}
+						}
 					case lua.LTFunction:
 						result = "<function>"
 					default:
